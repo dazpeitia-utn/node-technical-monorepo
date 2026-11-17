@@ -1,14 +1,15 @@
-import { Order } from '../../domain/model/Order';
-import { IOrderRepository } from '../../ports/outbound/IOrderRepository';
+import { type Order } from '../../domain/model/Order';
+import { type IOrderRepository } from '../../ports/outbound/IOrderRepository';
 
 export class InMemoryOrderRepository implements IOrderRepository {
   private orders: Map<string, Order> = new Map();
 
-  async save(order: Order): Promise<void> {
+  save(order: Order): Promise<void> {
     this.orders.set(order.id, order);
+    return Promise.resolve();
   }
 
-  async findById(id: string): Promise<Order | null> {
-    return this.orders.get(id) || null;
+  findById(id: string): Promise<Order | null> {
+    return Promise.resolve(this.orders.get(id) ?? null);
   }
 }

@@ -1,7 +1,7 @@
 import { OrderNotFoundError } from '../../domain/errors/OrderNotFoundError';
-import { Order } from '../../domain/model/Order';
-import { IOrderQueue } from '../../ports/outbound/IOrderQueue';
-import { IOrderRepository } from '../../ports/outbound/IOrderRepository';
+import { type Order } from '../../domain/model/Order';
+import { type IOrderQueue } from '../../ports/outbound/IOrderQueue';
+import { type IOrderRepository } from '../../ports/outbound/IOrderRepository';
 
 /**
  * Returns an order for its owner, wherever it currently is: PostgreSQL once processed,

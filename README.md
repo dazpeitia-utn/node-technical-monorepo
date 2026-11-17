@@ -24,7 +24,8 @@ Imagine your application as a secure vault. Hexagonal Architecture (popularized 
 ## 🛠️ Tech Stack
 
 - **Monorepo Management:** Turborepo & pnpm Workspaces
-- **Automated CI/CD & AI Code Review:** GitHub Actions integrated with Google Gemini API for automated Pull Request code reviews.
+- **CI/CD:** GitHub Actions pipeline on every PR and push to `main` (lint, typecheck, build, tests against a real Redis), plus an AI code review with Google Gemini
+- **Code Quality:** ESLint 10 with type-aware `typescript-eslint` rules (e.g. no floating promises)
 - **Language:** TypeScript (Strict Mode)
 - **API Framework:** NestJS (Express platform)
 - **Authentication:** JSON Web Tokens (JWT) & Stateless Security, passwords hashed with `scrypt` (`node:crypto`)
@@ -43,6 +44,7 @@ Imagine your application as a secure vault. Hexagonal Architecture (popularized 
 
 ```text
 node-technical-monorepo/
+├── .github/workflows/        # ci.yml (lint/typecheck/build/test), code-review.yml (Gemini)
 ├── apps/
 │   └── flash-sale-api/         # E-commerce Flash Sale micro-API (Hexagonal Architecture)
 │       ├── prisma/            # Database schema (orders, users)
@@ -119,6 +121,27 @@ node-technical-monorepo/
 
 ---
 
+## 🔁 Continuous Integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull request to `main`, on every push to `main`, and manually (`workflow_dispatch`). One job, `build-and-test`:
+
+| Step | Command | Fails the PR when… |
+|---|---|---|
+| Install | `pnpm install --frozen-lockfile` (pnpm store cached by `setup-node`) | the lockfile is out of date |
+| Prisma | `prisma generate` + `prisma validate` | the schema is invalid |
+| Lint | `pnpm lint` (ESLint, type-aware rules) | there's any lint error |
+| Typecheck | `pnpm typecheck` (`tsc --noEmit`, src + tests) | there's any type error |
+| Build | `pnpm build` (`tsc -p tsconfig.build.json` → `dist/`) | the production build breaks |
+| Test | `pnpm test` with a **Redis service container** and `REQUIRE_REDIS=1` | any test fails, or the real-Redis tests can't run (they fail instead of being skipped) |
+
+- Node 24, pnpm 11.28.12, all through Turborepo (`turbo run <task>`).
+- Actions are pinned to commit SHAs, the workflow token is read-only (`contents: read`), and a new push to a PR cancels its previous run.
+- To run the same checks locally before pushing: `pnpm lint && pnpm typecheck && pnpm build && pnpm test`.
+- **Branch protection:** `main` is protected by the "Protect Main Branch" ruleset (PRs only, no force-push or deletion). To block merges until CI passes, add the `build-and-test` check to its "Require status checks to pass" rule.
+- k6 load tests are not part of CI (they need the full stack and minutes of load); run them locally with `./load-tests/run.sh`.
+
+---
+
 ## 🧪 Testing
 
 Tests run with **Vitest**; HTTP integration tests boot a real NestJS app (controllers, `JwtAuthGuard`, validation) with **Supertest**, replacing only the outbound adapters (PostgreSQL, Redis) with in-memory fakes. No Docker needed to run them.
@@ -130,6 +153,7 @@ pnpm --filter flash-sale-api test:integration    # HTTP endpoints + Swagger spec
 pnpm --filter flash-sale-api test:coverage       # V8 coverage report in apps/flash-sale-api/coverage/
 pnpm --filter flash-sale-api test:watch          # watch mode
 pnpm --filter flash-sale-api typecheck           # tsc --noEmit (includes tests)
+pnpm lint                                        # ESLint across the monorepo (Turborepo)
 ```
 
 | Suite | What it covers |

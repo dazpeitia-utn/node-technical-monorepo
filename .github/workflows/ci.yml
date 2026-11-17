@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A new push to the same PR cancels the run in progress.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    # This job name is the status check to require in the "Protect Main Branch" ruleset.
+    name: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      # Real Redis so the lock and BullMQ integration tests run instead of being skipped.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      # Fail (don't skip) the real-Redis tests if the service isn't reachable.
+      REQUIRE_REDIS: '1'
+      # Only used by `prisma validate`; no test touches PostgreSQL.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+      TURBO_TELEMETRY_DISABLED: '1'
+
+    steps:
+      # Actions pinned to commit SHAs (tags can be moved; SHAs can't).
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 11.28.12
+
+      - name: Setup Node.js (with pnpm store cache)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter flash-sale-api exec prisma generate
+
+      - name: Validate Prisma schema
+        run: pnpm --filter flash-sale-api exec prisma validate
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test

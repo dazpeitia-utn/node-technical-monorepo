@@ -1,5 +1,5 @@
-import { Order } from '../../domain/model/Order';
-import { IOrderRepository } from '../../ports/outbound/IOrderRepository';
+import { type Order } from '../../domain/model/Order';
+import { type IOrderRepository } from '../../ports/outbound/IOrderRepository';
 
 /**
  * Runs in the background worker. The queue delivers jobs at-least-once, so both

@@ -54,6 +54,10 @@ describe('BullMQ order queue + worker (real Redis)', () => {
 
   beforeAll(async () => {
     redisAvailable = await isRedisReachable();
+    // In CI (REQUIRE_REDIS=1) a missing Redis must fail the run instead of silently skipping these tests.
+    if (!redisAvailable && process.env.REQUIRE_REDIS === '1') {
+      throw new Error('REQUIRE_REDIS=1 but Redis is not reachable');
+    }
   });
 
   beforeEach(async (ctx) => {

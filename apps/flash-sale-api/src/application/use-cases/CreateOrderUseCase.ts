@@ -1,5 +1,5 @@
 import { Order } from '../../domain/model/Order';
-import { IOrderQueue } from '../../ports/outbound/IOrderQueue';
+import { type IOrderQueue } from '../../ports/outbound/IOrderQueue';
 
 export interface CreateOrderCommand {
   productId: string;

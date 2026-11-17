@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CreateOrderUseCase } from '../../src/application/use-cases/CreateOrderUseCase';
 import { Order } from '../../src/domain/model/Order';
-import { IOrderQueue } from '../../src/ports/outbound/IOrderQueue';
+import { type IOrderQueue } from '../../src/ports/outbound/IOrderQueue';
 import { InMemoryOrderQueue } from '../helpers/InMemoryOrderQueue';
 import { PRODUCT_ID, USER_ID } from '../helpers/fixtures';
 

@@ -1,5 +1,5 @@
 import type { SchemaObject } from '@nestjs/swagger';
-import type { ZodTypeAny } from 'zod';
+import type { ZodType } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
 /**
@@ -7,7 +7,7 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
  * Los schemas de Zod siguen siendo la única fuente de verdad: validan en runtime
  * y generan la documentación, sin duplicar DTOs con decoradores.
  */
-export function zodToOpenApi(schema: ZodTypeAny, example?: unknown): SchemaObject {
+export function zodToOpenApi(schema: ZodType, example?: unknown): SchemaObject {
   const { $schema: _ignored, ...jsonSchema } = zodToJsonSchema(schema, {
     target: 'openApi3',
     $refStrategy: 'none',

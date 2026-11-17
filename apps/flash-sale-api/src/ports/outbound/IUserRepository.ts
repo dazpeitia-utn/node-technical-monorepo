@@ -1,4 +1,4 @@
-import { User } from '../../domain/model/User';
+import { type User } from '../../domain/model/User';
 
 export interface IUserRepository {
   save(user: User): Promise<void>;

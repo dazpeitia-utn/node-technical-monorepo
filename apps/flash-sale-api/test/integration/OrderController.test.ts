@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import { INestApplication } from '@nestjs/common';
+import { type INestApplication } from '@nestjs/common';
 import { ProcessOrderUseCase } from '../../src/application/use-cases/ProcessOrderUseCase';
 import { InMemoryOrderRepository } from '../../src/infrastructure/outbound/InMemoryOrderRepository';
 import { createOrdersTestApp } from '../helpers/createOrdersTestApp';

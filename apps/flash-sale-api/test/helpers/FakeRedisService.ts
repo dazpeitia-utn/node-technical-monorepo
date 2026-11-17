@@ -1,4 +1,4 @@
-import { RedisService } from '../../src/infrastructure/cache/redis.service';
+import { type RedisService } from '../../src/infrastructure/cache/redis.service';
 
 /**
  * Redis en memoria con TTL basado en Date.now(), así funciona con `vi.useFakeTimers()`.

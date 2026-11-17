@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
-import { Order, OrderStatus } from '../../domain/model/Order';
-import { IOrderRepository } from '../../ports/outbound/IOrderRepository';
+import { Order, type OrderStatus } from '../../domain/model/Order';
+import { type IOrderRepository } from '../../ports/outbound/IOrderRepository';
 
 const prisma = new PrismaClient();
 

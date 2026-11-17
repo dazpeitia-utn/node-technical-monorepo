@@ -1,7 +1,7 @@
 import '../../config/load-env';
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { NestExpressApplication } from '@nestjs/platform-express';
+import { type NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { SWAGGER_PATH, setupSwagger } from './openapi/swagger';
 

@@ -1,7 +1,7 @@
-import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { type ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import jwt from 'jsonwebtoken';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AuthenticatedRequest, JwtAuthGuard } from '../../src/infrastructure/inbound/http/guards/jwt-auth.guard';
+import { type AuthenticatedRequest, JwtAuthGuard } from '../../src/infrastructure/inbound/http/guards/jwt-auth.guard';
 import { signAccessToken, verifyAccessToken } from '../../src/infrastructure/security/jwt';
 import { USER_ID, bearer } from '../helpers/fixtures';
 
