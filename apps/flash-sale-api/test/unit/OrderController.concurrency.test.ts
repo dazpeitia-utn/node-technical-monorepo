@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CreateOrderUseCase } from '../../src/application/use-cases/CreateOrderUseCase';
 import { OrderController } from '../../src/infrastructure/inbound/http/OrderController';
-import { AuthenticatedRequest } from '../../src/infrastructure/inbound/http/guards/jwt-auth.guard';
+import { type AuthenticatedRequest } from '../../src/infrastructure/inbound/http/guards/jwt-auth.guard';
 import { GetOrderUseCase } from '../../src/application/use-cases/GetOrderUseCase';
 import { InMemoryOrderRepository } from '../../src/infrastructure/outbound/InMemoryOrderRepository';
 import { InMemoryOrderQueue } from '../helpers/InMemoryOrderQueue';

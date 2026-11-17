@@ -13,9 +13,10 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  onModuleDestroy() {
+  async onModuleDestroy(): Promise<void> {
+    // Awaited so Nest's shutdown hooks wait for pending commands to flush before exiting.
     if (this.client) {
-      this.client.quit();
+      await this.client.quit();
     }
   }
 

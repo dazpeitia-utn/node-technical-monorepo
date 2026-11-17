@@ -1,7 +1,7 @@
 import { EmailAlreadyRegisteredError } from '../../domain/errors/EmailAlreadyRegisteredError';
 import { User } from '../../domain/model/User';
-import { IPasswordHasher } from '../../ports/outbound/IPasswordHasher';
-import { IUserRepository } from '../../ports/outbound/IUserRepository';
+import { type IPasswordHasher } from '../../ports/outbound/IPasswordHasher';
+import { type IUserRepository } from '../../ports/outbound/IUserRepository';
 
 export interface RegisterUserCommand {
   email: string;

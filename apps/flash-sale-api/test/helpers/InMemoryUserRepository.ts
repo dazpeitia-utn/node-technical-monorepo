@@ -1,5 +1,5 @@
-import { User } from '../../src/domain/model/User';
-import { IUserRepository } from '../../src/ports/outbound/IUserRepository';
+import { type User } from '../../src/domain/model/User';
+import { type IUserRepository } from '../../src/ports/outbound/IUserRepository';
 
 export class InMemoryUserRepository implements IUserRepository {
   readonly users: User[] = [];

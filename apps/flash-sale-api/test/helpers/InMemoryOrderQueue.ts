@@ -1,6 +1,6 @@
-import { ProcessOrderUseCase } from '../../src/application/use-cases/ProcessOrderUseCase';
-import { Order } from '../../src/domain/model/Order';
-import { IOrderQueue, OrderJobData, QueuedOrder, fromOrderJobData, toOrderJobData } from '../../src/ports/outbound/IOrderQueue';
+import { type ProcessOrderUseCase } from '../../src/application/use-cases/ProcessOrderUseCase';
+import { type Order } from '../../src/domain/model/Order';
+import { type IOrderQueue, type OrderJobData, type QueuedOrder, fromOrderJobData, toOrderJobData } from '../../src/ports/outbound/IOrderQueue';
 
 /**
  * In-memory IOrderQueue. Like BullMQ with jobId = orderId, enqueueing the same order twice

@@ -1,0 +1,9 @@
+{
+  // Production build: only src/ (tests are type-checked by `pnpm typecheck` with tsconfig.json).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*"]
+}

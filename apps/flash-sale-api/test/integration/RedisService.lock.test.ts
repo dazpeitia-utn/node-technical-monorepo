@@ -41,11 +41,15 @@ describe('RedisService locks (real Redis)', () => {
 
   beforeAll(async () => {
     redisAvailable = await isRedisReachable();
+    // In CI (REQUIRE_REDIS=1) a missing Redis must fail the run instead of silently skipping these tests.
+    if (!redisAvailable && process.env.REQUIRE_REDIS === '1') {
+      throw new Error('REQUIRE_REDIS=1 but Redis is not reachable');
+    }
     if (redisAvailable) redis.onModuleInit();
   });
 
-  afterAll(() => {
-    if (redisAvailable) redis.onModuleDestroy();
+  afterAll(async () => {
+    if (redisAvailable) await redis.onModuleDestroy();
   });
 
   it('only one of 50 simultaneous acquireLock calls wins', async () => {
