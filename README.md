@@ -33,6 +33,7 @@ Imagine your application as a secure vault. Hexagonal Architecture (popularized 
 - **Database & ORM:** PostgreSQL & Prisma ORM
 - **Cache & Concurrency Control:** Redis (`ioredis`) for per-user order idempotency locks
 - **Testing:** Vitest & Supertest (Unit & Integration tests, V8 coverage)
+- **Load Testing:** k6 (flash sale scenarios, PostgreSQL cross-check, recorded before/after results)
 - **Containerization:** Docker & Docker Compose
 
 ---
@@ -52,6 +53,7 @@ node-technical-monorepo/
 │       │   └── ports/         # Outbound interfaces + DI tokens
 │       ├── test/              # unit/, integration/, helpers/ (in-memory fakes, fixtures)
 │       └── .env.example       # Environment variables template
+├── load-tests/                # k6 flash sale load test, DB cross-check and recorded results
 ├── packages/                  # Shared packages across apps (future expansions)
 ├── docker-compose.yml         # Local infrastructure provisioning (PostgreSQL + Redis)
 ├── pnpm-workspace.yaml        # pnpm workspaces configuration
@@ -135,6 +137,23 @@ pnpm --filter flash-sale-api typecheck           # tsc --noEmit (includes tests)
 | `integration/Swagger` | Docs served, every endpoint and status code documented, Zod-derived bodies, Bearer security |
 | `unit/OrderController.concurrency` | N truly simultaneous requests: exactly one wins per user + product, others get `429`; lock released on failure |
 | `integration/RedisService.lock` | Against a **real Redis**: 50 parallel `acquireLock` → 1 winner, TTL set, owner-only release (Lua). Skipped automatically if Redis isn't reachable |
+
+---
+
+## 🔥 Load Testing (k6)
+
+[`load-tests/`](load-tests/) simulates a flash sale against `POST /orders` for a single product:
+
+- **200 distinct buyers** ordering at the same instant: all must succeed.
+- **50 concurrent clients spamming from one account** for 10 s: the Redis lock must let at most one order through per 3 s window and answer `429` to the rest.
+
+After each run, the number of rows actually written to PostgreSQL is checked against the `201` responses.
+
+```bash
+./load-tests/run.sh          # API on :3000; uses local k6 or the grafana/k6 Docker image
+```
+
+**Recorded result** ([full report](load-tests/RESULTS.md)): at ~800–1,500 req/s, the atomic lock (`SET NX EX`) allowed **4 orders in 10 s in all 3 runs**. The previous `GET`-then-`SET` lock allowed **48–90** (12–22× over the limit, all real rows in PostgreSQL), at the same latency and throughput. All 200 simultaneous distinct buyers got their order in every run.
 
 ---
 

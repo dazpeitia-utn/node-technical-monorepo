@@ -1,0 +1,78 @@
+{
+  "label": "atomic-lock-run1",
+  "runAt": "2026-11-17T17:58:23.326Z",
+  "config": {
+    "baseUrl": "http://host.docker.internal:3999",
+    "productId": "123e4567-e89b-12d3-a456-426614174000",
+    "burstUsers": 200,
+    "spamVus": 50,
+    "spamSeconds": 10,
+    "lockTtlSeconds": 3,
+    "maxSpamOrdersAllowed": 5
+  },
+  "setup": {
+    "runId": "k6-1794938275032",
+    "spamUserId": "e25c2e80-3fe6-4ae0-8ba3-148ebaad8f8d"
+  },
+  "scenarios": {
+    "many_users_burst": {
+      "requests": 200,
+      "created201": 200,
+      "blocked429": 0,
+      "latencyMs": {
+        "avg": 164.196193635,
+        "med": 156.6320965,
+        "p90": 234.0302285,
+        "p95": 261.19130549999903,
+        "p99": 325.15729732999995,
+        "max": 329.671445
+      }
+    },
+    "same_user_spam": {
+      "requests": 14721,
+      "created201": 4,
+      "blocked429": 14717,
+      "latencyMs": {
+        "avg": 33.740682282249935,
+        "med": 31.499568,
+        "p90": 45.47406,
+        "p95": 52.999397,
+        "p99": 69.89664359999999,
+        "max": 324.661712
+      },
+      "requestsPerSecond": 1472.1
+    }
+  },
+  "unexpectedResponses": 0,
+  "transportErrors": {
+    "count": 0,
+    "rate": 0
+  },
+  "checksPassRate": 1,
+  "thresholds": {
+    "http_reqs{scenario:many_users_burst}: count>0": true,
+    "transport_errors: rate<0.01": true,
+    "orders_created{scenario:many_users_burst}: count==200": true,
+    "http_req_duration{scenario:same_user_spam}: p(95)<300": true,
+    "http_req_duration{scenario:many_users_burst}: p(95)<2000": true,
+    "checks: rate==1.0": true,
+    "http_reqs{scenario:same_user_spam}: count>0": true,
+    "orders_blocked{scenario:many_users_burst}: count==0": true,
+    "orders_created{scenario:same_user_spam}: count<=5": true,
+    "orders_unexpected: count==0": true,
+    "orders_blocked{scenario:same_user_spam}: count>0": true
+  },
+  "allThresholdsPassed": true,
+  "dbVerification": {
+    "spamOrdersInDb": 4,
+    "burstOrdersInDb": 200,
+    "burstUsersWithDuplicates": 0,
+    "checks": {
+      "burst: orders in DB == 201 responses": true,
+      "burst: no user has duplicate orders": true,
+      "spam: orders in DB == 201 responses": true,
+      "spam: orders in DB <= 5 (one per lock window)": true
+    },
+    "passed": true
+  }
+}
