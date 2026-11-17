@@ -3,6 +3,7 @@ packages:
   - 'packages/*'
 allowBuilds:
   '@scarf/scarf': false
+  msgpackr-extract: false
   '@prisma/client': false
   '@prisma/engines': false
   esbuild: true

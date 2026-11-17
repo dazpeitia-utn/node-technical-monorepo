@@ -10,3 +10,5 @@ export const createOrderSchema = z.object({
 });
 
 export type CreateOrderDTO = z.infer<typeof createOrderSchema>;
+
+export const orderIdSchema = z.string().uuid().describe('Order UUID (returned by POST /orders)');

@@ -9,6 +9,10 @@
  *      (double clicks, retries, bots). The Redis lock (SET NX EX 3) must let at most one order
  *      through per 3-second window and answer 429 to the rest.
  *
+ * "Accepted" means 201 (synchronous API, before BullMQ) or 202 (queued API): the same script
+ * benchmarks both versions. With the queue, orders reach PostgreSQL asynchronously; verify-db.mjs
+ * waits for the worker to drain the queue before cross-checking.
+ *
  * Users are registered in setup() through POST /auth/register, so tokens are real.
  * Results are written by handleSummary() to RESULTS_DIR/<RUN_LABEL>.json.
  *
@@ -34,7 +38,8 @@ const RESULTS_DIR = __ENV.RESULTS_DIR || 'results';
 const MAX_SPAM_ORDERS = Math.ceil(SPAM_SECONDS / LOCK_TTL_SECONDS) + 1;
 
 // ---------- Custom metrics ----------
-const ordersCreated = new Counter('orders_created'); // 201
+// 201 (synchronous API) or 202 (queued API, BullMQ): the order was accepted.
+const ordersAccepted = new Counter('orders_accepted');
 const ordersBlocked = new Counter('orders_blocked'); // 429 (Redis lock)
 const ordersUnexpected = new Counter('orders_unexpected'); // the API answered something else (400/401/5xx)
 // The request never got an HTTP answer (status 0: dial/connection timeout). Kept apart from
@@ -43,7 +48,7 @@ const ordersUnexpected = new Counter('orders_unexpected'); // the API answered s
 const transportErrors = new Rate('transport_errors');
 
 // 429 is an expected, correct answer here: don't count it as a failed request.
-http.setResponseCallback(http.expectedStatuses(200, 201, 429));
+http.setResponseCallback(http.expectedStatuses(200, 201, 202, 429));
 
 export const options = {
   setupTimeout: '180s',
@@ -70,10 +75,10 @@ export const options = {
     orders_unexpected: ['count==0'],
     transport_errors: ['rate<0.01'],
     // Burst: every distinct user gets their order.
-    'orders_created{scenario:many_users_burst}': [`count==${BURST_USERS}`],
+    'orders_accepted{scenario:many_users_burst}': [`count==${BURST_USERS}`],
     'orders_blocked{scenario:many_users_burst}': ['count==0'],
     // Spam: at most one order per lock window, the rest blocked.
-    'orders_created{scenario:same_user_spam}': [`count<=${MAX_SPAM_ORDERS}`],
+    'orders_accepted{scenario:same_user_spam}': [`count<=${MAX_SPAM_ORDERS}`],
     'orders_blocked{scenario:same_user_spam}': ['count>0'],
     // Performance budgets (local dev machine).
     'http_req_duration{scenario:many_users_burst}': ['p(95)<2000'],
@@ -136,7 +141,7 @@ function record(res) {
   transportErrors.add(!answered);
   if (!answered) return false;
 
-  if (res.status === 201) ordersCreated.add(1);
+  if (res.status === 201 || res.status === 202) ordersAccepted.add(1);
   else if (res.status === 429) ordersBlocked.add(1);
   else ordersUnexpected.add(1);
   return true;
@@ -149,7 +154,7 @@ export function manyUsersBurst(data) {
   const res = placeOrder(user.token);
   if (!record(res)) return;
   check(res, {
-    'burst: every distinct user gets 201': (r) => r.status === 201,
+    'burst: every distinct user gets their order accepted (201/202)': (r) => r.status === 201 || r.status === 202,
   });
 }
 
@@ -157,7 +162,7 @@ export function sameUserSpam(data) {
   const res = placeOrder(data.spamUser.token);
   if (!record(res)) return;
   check(res, {
-    'spam: answered 201 or 429 (never 5xx)': (r) => r.status === 201 || r.status === 429,
+    'spam: answered 201/202 or 429 (never 5xx)': (r) => [201, 202, 429].includes(r.status),
     'spam: 429 explains the lock': (r) => r.status !== 429 || r.json('error') === 'Too Many Requests',
   });
 }
@@ -172,7 +177,7 @@ function scenarioResult(data, scenario) {
   const duration = `http_req_duration{scenario:${scenario}}`;
   return {
     requests: metricValue(data, `http_reqs{scenario:${scenario}}`, 'count'),
-    created201: metricValue(data, `orders_created{scenario:${scenario}}`, 'count'),
+    accepted: metricValue(data, `orders_accepted{scenario:${scenario}}`, 'count'),
     blocked429: metricValue(data, `orders_blocked{scenario:${scenario}}`, 'count'),
     latencyMs: {
       avg: metricValue(data, duration, 'avg'),
@@ -231,8 +236,8 @@ export function handleSummary(data) {
   const text = [
     '',
     `=== Flash sale load test: ${RUN_LABEL} ===`,
-    `many_users_burst: ${b.requests} requests → ${b.created201}×201, ${b.blocked429}×429 | p95 ${ms(b.latencyMs.p95)}`,
-    `same_user_spam:   ${s.requests} requests → ${s.created201}×201 (max allowed ${MAX_SPAM_ORDERS}), ${s.blocked429}×429 | p95 ${ms(s.latencyMs.p95)} | ${s.requestsPerSecond.toFixed(0)} req/s`,
+    `many_users_burst: ${b.requests} requests → ${b.accepted}×accepted, ${b.blocked429}×429 | p95 ${ms(b.latencyMs.p95)}`,
+    `same_user_spam:   ${s.requests} requests → ${s.accepted}×accepted (max allowed ${MAX_SPAM_ORDERS}), ${s.blocked429}×429 | p95 ${ms(s.latencyMs.p95)} | ${s.requestsPerSecond.toFixed(0)} req/s`,
     `unexpected API responses: ${result.unexpectedResponses} | transport errors (no HTTP answer): ${result.transportErrors.count} (${(result.transportErrors.rate * 100).toFixed(3)}%) | checks: ${(result.checksPassRate * 100).toFixed(2)}%`,
     ...Object.entries(thresholds).map(([k, ok]) => `  ${ok ? '✓' : '✗'} ${k}`),
     `RESULT: ${result.allThresholdsPassed ? 'PASS' : 'FAIL'}`,

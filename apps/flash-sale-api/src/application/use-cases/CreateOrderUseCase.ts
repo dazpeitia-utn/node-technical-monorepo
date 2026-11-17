@@ -1,5 +1,5 @@
 import { Order } from '../../domain/model/Order';
-import { IOrderRepository } from '../../ports/outbound/IOrderRepository';
+import { IOrderQueue } from '../../ports/outbound/IOrderQueue';
 
 export interface CreateOrderCommand {
   productId: string;
@@ -7,12 +7,17 @@ export interface CreateOrderCommand {
   quantity: number;
 }
 
+/**
+ * Accepts an order and hands it to the background queue (non-blocking).
+ * Domain rules are checked here, synchronously, so invalid orders are rejected
+ * right away; persistence and the final status happen in ProcessOrderUseCase.
+ */
 export class CreateOrderUseCase {
-  constructor(private readonly orderRepository: IOrderRepository) {}
+  constructor(private readonly orderQueue: IOrderQueue) {}
 
   async execute(command: CreateOrderCommand): Promise<Order> {
     const order = Order.create(command.productId, command.userId, command.quantity);
-    await this.orderRepository.save(order);
+    await this.orderQueue.enqueue(order);
     return order;
   }
 }

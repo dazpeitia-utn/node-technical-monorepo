@@ -10,7 +10,7 @@ Flash sale load test for `apps/flash-sale-api`: many buyers and one spamming use
 |---|---|
 | `flash-sale-load-test.js` | The k6 script: registers real users in `setup()`, runs two scenarios, checks and thresholds, and writes `results/<RUN_LABEL>.json` |
 | `run.sh` | Runs the script (local `k6` if installed, otherwise Docker) and then `verify-db.mjs` |
-| `verify-db.mjs` | Counts the orders actually stored in PostgreSQL and compares them with the `201`s k6 saw |
+| `verify-db.mjs` | Waits for the queue to drain, then compares the orders stored in PostgreSQL with the accepted responses k6 saw |
 | `results/` | One JSON per run (metrics, thresholds, DB cross-check) |
 | `RESULTS.md` | Recorded runs, before/after comparison and conclusions |
 
@@ -18,14 +18,14 @@ Flash sale load test for `apps/flash-sale-api`: many buyers and one spamming use
 
 | Scenario | Load (defaults) | Pass criteria |
 |---|---|---|
-| `many_users_burst` | 200 distinct users, 1 order each, all at the same instant | 200 × `201`, 0 × `429`, p95 < 2 s |
-| `same_user_spam` | 50 VUs on **one** account, non-stop for 10 s (starts at t = 15 s) | ≤ `ceil(10/3)+1 = 5` × `201`, the rest `429`, p95 < 300 ms |
+| `many_users_burst` | 200 distinct users, 1 order each, all at the same instant | 200 accepted (`202`; `201` on the pre-queue API), 0 × `429`, p95 < 2 s |
+| `same_user_spam` | 50 VUs on **one** account, non-stop for 10 s (starts at t = 15 s) | ≤ `ceil(10/3)+1 = 5` accepted, the rest `429`, p95 < 300 ms |
 | Both | | 0 unexpected API responses (no 400/401/5xx); < 1% transport errors |
-| `verify-db.mjs` | | Rows in PostgreSQL = `201` responses; no burst user has duplicates; spam user ≤ 5 orders |
+| `verify-db.mjs` | | Waits for the worker to drain the queue, then: rows in PostgreSQL = accepted responses, all `CONFIRMED`, no burst user has duplicates, spam user ≤ 5 orders |
 
 ## Running it
 
-**1. Prerequisites:** infrastructure, schema and the API running.
+**1. Prerequisites:** infrastructure, schema, the API **and the order worker** running (without the worker, orders stay `PENDING` in the queue and the DB check times out).
 
 ```bash
 docker compose up -d
@@ -33,6 +33,12 @@ docker compose up -d
 
 ```bash
 cd apps/flash-sale-api && pnpm exec prisma db push && pnpm dev
+```
+
+In another terminal:
+
+```bash
+cd apps/flash-sale-api && pnpm dev:worker
 ```
 
 **2. k6:** either install it natively (recommended: no Docker network proxy in the way), or let `run.sh` use the Docker image `grafana/k6:2.4.0` automatically.
@@ -63,6 +69,7 @@ All optional, as environment variables:
 | `PRODUCT_ID` | `123e4567-…4000` | Product everyone orders |
 | `USE_DOCKER` | unset | Set to `1` to force the Docker image even if `k6` is installed |
 | `PG_CONTAINER` | `flash_sale_postgres` | Container used by `verify-db.mjs` |
+| `DRAIN_TIMEOUT_SECONDS` | `120` | How long `verify-db.mjs` waits for the worker to process every accepted order |
 
 ```bash
 RUN_LABEL=stress BURST_USERS=500 SPAM_VUS=100 SPAM_SECONDS=30 ./load-tests/run.sh
