@@ -1,69 +1,77 @@
-import { Response, NextFunction } from 'express';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  HttpCode,
+  HttpException,
+  HttpStatus,
+  Inject,
+  Post,
+  Req,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
 import { CreateOrderUseCase } from '../../../application/use-cases/CreateOrderUseCase';
+import { RedisService } from '../../cache/redis.service';
+import { AuthenticatedRequest, JwtAuthGuard } from './guards/jwt-auth.guard';
+import { ApiCreateOrder, ApiOrders } from './openapi/orders.docs';
 import { createOrderSchema } from './order.schema';
-import { AuthenticatedRequest } from './middlewares/auth.middleware';
-import { RedisService } from '../../../infrastructure/cache/redis.service';
 
+const ORDER_LOCK_TTL_SECONDS = 3;
+
+@ApiOrders()
+@Controller('orders')
 export class OrderController {
+  // @Inject explícito: tsx/esbuild no emite `design:paramtypes`.
   constructor(
-    private readonly createOrderUseCase: CreateOrderUseCase,
-    private readonly redisService: RedisService // Inyectamos Redis aquí
+    @Inject(CreateOrderUseCase) private readonly createOrderUseCase: CreateOrderUseCase,
+    @Inject(RedisService) private readonly redisService: RedisService,
   ) {}
 
-  public create = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      // 1. Validar el schema del body (solo productId y quantity)
-      const validationResult = createOrderSchema.safeParse(req.body);
-      
-      if (!validationResult.success) {
-        res.status(400).json({
-          error: 'Validation Error',
-          details: validationResult.error.format(),
-        });
-        return;
-      }
-
-      // 2. Extraer el userId de forma segura desde el token JWT (inyectado por el authMiddleware)
-      const userId = req.user?.userId;
-      if (!userId) {
-        res.status(401).json({ error: 'Unauthorized: User ID not found in token' });
-        return;
-      }
-
-      const { productId, quantity } = validationResult.data;
-
-      // 3. Control de alta concurrencia / Idempotencia con Redis (Ej: Bloquear doble clic o spam por 3 segundos)
-      const lockKey = `lock:order:${userId}:${productId}`;
-      const isLocked = await this.redisService.get(lockKey);
-
-      if (isLocked) {
-        res.status(429).json({ 
-          error: 'Too Many Requests', 
-          message: 'Ya tienes una orden en proceso para este producto. Por favor espera unos segundos.' 
-        });
-        return;
-      }
-
-      // Seteamos un bloqueo temporal en Redis por 3 segundos
-      await this.redisService.set(lockKey, 'locked', 3);
-
-      // 4. Ejecutar el caso de uso del dominio con el userId seguro
-      const order = await this.createOrderUseCase.execute({
-        productId,
-        userId,
-        quantity,
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(JwtAuthGuard)
+  @ApiCreateOrder()
+  async create(@Body() body: unknown, @Req() req: AuthenticatedRequest) {
+    // 1. Validar el body (solo productId y quantity; el userId nunca viene del cliente)
+    const validation = createOrderSchema.safeParse(body);
+    if (!validation.success) {
+      throw new BadRequestException({
+        error: 'Validation Error',
+        details: validation.error.flatten().fieldErrors,
       });
-
-      res.status(201).json({
-        message: 'Order created successfully',
-        data: order,
-      });
-    } catch (error: any) {
-      if (error.message === 'Quantity must be greater than zero') {
-        res.status(400).json({ error: error.message });
-        return;
-      }
-      next(error);
     }
-  };
+
+    // 2. El userId sale del JWT verificado por JwtAuthGuard
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new UnauthorizedException({ error: 'Unauthorized: User ID not found in token' });
+    }
+
+    const { productId, quantity } = validation.data;
+
+    // 3. Idempotencia / anti doble clic: bloqueo temporal por usuario y producto en Redis
+    const lockKey = `lock:order:${userId}:${productId}`;
+    if (await this.redisService.get(lockKey)) {
+      throw new HttpException(
+        {
+          error: 'Too Many Requests',
+          message: 'Ya tienes una orden en proceso para este producto. Por favor espera unos segundos.',
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    await this.redisService.set(lockKey, 'locked', ORDER_LOCK_TTL_SECONDS);
+
+    // 4. Caso de uso de dominio
+    try {
+      const order = await this.createOrderUseCase.execute({ productId, userId, quantity });
+      return { message: 'Order created successfully', data: order };
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Quantity must be greater than zero') {
+        throw new BadRequestException({ error: error.message });
+      }
+      throw error;
+    }
+  }
 }
