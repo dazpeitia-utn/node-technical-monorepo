@@ -2,9 +2,13 @@ import { Response, NextFunction } from 'express';
 import { CreateOrderUseCase } from '../../../application/use-cases/CreateOrderUseCase';
 import { createOrderSchema } from './order.schema';
 import { AuthenticatedRequest } from './middlewares/auth.middleware';
+import { RedisService } from '../../../infrastructure/cache/redis.service';
 
 export class OrderController {
-  constructor(private readonly createOrderUseCase: CreateOrderUseCase) {}
+  constructor(
+    private readonly createOrderUseCase: CreateOrderUseCase,
+    private readonly redisService: RedisService // Inyectamos Redis aquí
+  ) {}
 
   public create = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -28,7 +32,22 @@ export class OrderController {
 
       const { productId, quantity } = validationResult.data;
 
-      // 3. Ejecutar el caso de uso del dominio con el userId seguro
+      // 3. Control de alta concurrencia / Idempotencia con Redis (Ej: Bloquear doble clic o spam por 3 segundos)
+      const lockKey = `lock:order:${userId}:${productId}`;
+      const isLocked = await this.redisService.get(lockKey);
+
+      if (isLocked) {
+        res.status(429).json({ 
+          error: 'Too Many Requests', 
+          message: 'Ya tienes una orden en proceso para este producto. Por favor espera unos segundos.' 
+        });
+        return;
+      }
+
+      // Seteamos un bloqueo temporal en Redis por 3 segundos
+      await this.redisService.set(lockKey, 'locked', 3);
+
+      // 4. Ejecutar el caso de uso del dominio con el userId seguro
       const order = await this.createOrderUseCase.execute({
         productId,
         userId,
