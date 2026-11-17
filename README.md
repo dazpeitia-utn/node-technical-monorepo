@@ -133,8 +133,8 @@ pnpm --filter flash-sale-api typecheck           # tsc --noEmit (includes tests)
 | `integration/OrderController` | `201`, userId taken from the JWT, `400`, `401`, `500` without leaking details, and the **Redis lock**: `429` on repeat, scoped per user + product, 3s TTL, released after expiry (fake timers) |
 | `integration/AuthController` | `/auth/register` (`201`/`400`/`409`) and `/auth/login` |
 | `integration/Swagger` | Docs served, every endpoint and status code documented, Zod-derived bodies, Bearer security |
-
-> ⚠️ **Known issue:** `unit/OrderController.concurrency` is marked `it.fails`. The Redis lock is a `GET` followed by a separate `SET`, so truly simultaneous identical requests all get through (10/10 in the test). It will be fixed with an atomic `SET NX EX`; then the test flips to `it`.
+| `unit/OrderController.concurrency` | N truly simultaneous requests: exactly one wins per user + product, others get `429`; lock released on failure |
+| `integration/RedisService.lock` | Against a **real Redis**: 50 parallel `acquireLock` → 1 winner, TTL set, owner-only release (Lua). Skipped automatically if Redis isn't reachable |
 
 ---
 
@@ -186,7 +186,9 @@ Returns a signed JWT for testing purposes. ⚠️ It does **not** verify credent
   ```
 
 ### 3. Create Order (Protected Route)
-Creates an order in PostgreSQL. Requires a valid Bearer token, checked by `JwtAuthGuard` (the `userId` is extracted from the JWT to prevent identity spoofing). A Redis lock rejects repeated orders for the same user and product within 3 seconds with `429 Too Many Requests`. Responses: `201`, `400` (field errors in `details`), `401`, `429`.
+Creates an order in PostgreSQL. Requires a valid Bearer token, checked by `JwtAuthGuard` (the `userId` is extracted from the JWT to prevent identity spoofing). A Redis lock rejects repeated orders for the same user and product within 3 seconds with `429 Too Many Requests`.
+
+  The lock is taken atomically with a single `SET lock:order:<userId>:<productId> <token> NX EX 3`, so among N simultaneous identical requests exactly one gets through (verified with 50 parallel requests: 1×`201`, 49×`429`, 1 row in PostgreSQL). On success the lock is kept until it expires (double-click protection); if the order fails, it is released immediately with an owner-checked compare-and-delete (Lua), so the user can retry. Responses: `201`, `400` (field errors in `details`), `401`, `429`.
 - **POST** `/orders`
   ```bash
   curl -X POST http://localhost:3000/orders \

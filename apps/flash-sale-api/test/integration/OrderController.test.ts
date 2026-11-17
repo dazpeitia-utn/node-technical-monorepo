@@ -76,8 +76,8 @@ describe('POST /orders (Integration Test, NestJS + Supertest)', () => {
     it('sets the lock per user and product with a 3 second TTL', async () => {
       await postOrder();
 
-      expect(redis.setCalls).toEqual([
-        { key: `lock:order:${USER_ID}:${PRODUCT_ID}`, value: 'locked', ttlSeconds: 3 },
+      expect(redis.lockCalls).toEqual([
+        { key: `lock:order:${USER_ID}:${PRODUCT_ID}`, ttlSeconds: 3, acquired: true },
       ]);
     });
 
@@ -119,7 +119,7 @@ describe('POST /orders (Integration Test, NestJS + Supertest)', () => {
     it('does not take the Redis lock for an invalid payload', async () => {
       await postOrder({ productId: PRODUCT_ID, quantity: 0 });
 
-      expect(redis.setCalls).toHaveLength(0);
+      expect(redis.lockCalls).toHaveLength(0);
     });
   });
 
@@ -151,6 +151,13 @@ describe('POST /orders (Integration Test, NestJS + Supertest)', () => {
 
       expect(response.status).toBe(500);
       expect(JSON.stringify(response.body)).not.toContain('connection to db lost');
+    });
+
+    it('releases the Redis lock so an immediate retry succeeds', async () => {
+      vi.spyOn(orderRepository, 'save').mockRejectedValueOnce(new Error('connection to db lost'));
+
+      expect((await postOrder()).status).toBe(500);
+      expect((await postOrder()).status).toBe(201);
     });
   });
 });
