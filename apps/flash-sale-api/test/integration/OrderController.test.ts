@@ -4,6 +4,8 @@ import express from 'express';
 import { OrderController } from '../../src/infrastructure/inbound/http/OrderController';
 import { CreateOrderUseCase } from '../../src/application/use-cases/CreateOrderUseCase';
 import { InMemoryOrderRepository } from '../../src/infrastructure/outbound/InMemoryOrderRepository';
+import { RedisService } from '../../src/infrastructure/cache/redis.service';
+import { AuthenticatedRequest } from '../../src/infrastructure/inbound/http/middlewares/auth.middleware';
 
 const createTestApp = () => {
   const app = express();
@@ -11,9 +13,23 @@ const createTestApp = () => {
 
   const orderRepo = new InMemoryOrderRepository();
   const createOrderUseCase = new CreateOrderUseCase(orderRepo);
-  const orderController = new OrderController(createOrderUseCase);
+  const redisService = {
+    get: async () => null,
+    set: async () => undefined,
+    del: async () => 0,
+  } as unknown as RedisService;
+  const orderController = new OrderController(createOrderUseCase, redisService);
 
-  app.post('/orders', orderController.create);
+  // Simula el authMiddleware: el userId ahora viene del JWT, no del body.
+  const fakeAuth: express.RequestHandler = (req, _res, next) => {
+    (req as AuthenticatedRequest).user = {
+      userId: '123e4567-e89b-12d3-a456-426614174001',
+      email: 'user@example.com',
+    };
+    next();
+  };
+
+  app.post('/orders', fakeAuth, orderController.create);
   return app;
 };
 
