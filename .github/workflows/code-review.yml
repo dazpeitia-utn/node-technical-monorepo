@@ -15,7 +15,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -25,7 +25,10 @@ jobs:
       - name: Get PR Diff
         id: diff
         run: |
-          git diff origin/${{ github.base_ref }} HEAD > pr_diff.patch
+          BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
+          git fetch origin $BASE_BRANCH
+          git diff origin/$BASE_BRANCH HEAD > pr_diff.patch
+          
           echo "DIFF_FILE=pr_diff.patch" >> $GITHUB_ENV
           {
             echo 'DIFF_CONTENT<<EOF'
@@ -37,7 +40,6 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const fs = require('fs');
             const diffContent = process.env.DIFF_CONTENT;
 
             if (!diffContent || diffContent.trim() === '') {
