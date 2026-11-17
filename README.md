@@ -14,7 +14,7 @@ Imagine your application as a secure vault. Hexagonal Architecture (popularized 
 - **The Domain (The Center):** Contains pure business logic and rules (e.g., `Order` entities, invariant checks). It has no knowledge of Express, SQL, MongoDB, or external frameworks—only pure TypeScript.
 - **The Ports (Interfaces):** Act as boundaries or contracts. They define *what* the domain needs (e.g., `IOrderRepository`, `IUserRepository`, `IPasswordHasher`) without caring *how* it is implemented.
 - **The Adapters (The Outside):** Translate requests between the external world and the core domain:
-  - **Inbound Adapters:** HTTP controllers (the NestJS `AuthController` and the Express-style `OrderController`), security middlewares (`authMiddleware`), and Zod validation schemas. They intercept HTTP requests, validate payloads, and trigger use cases.
+  - **Inbound Adapters:** NestJS controllers (`AuthController`, `OrderController`), the `JwtAuthGuard`, and Zod validation schemas. They intercept HTTP requests, validate payloads, and trigger use cases. The same Zod schemas also generate the OpenAPI docs.
   - **Outbound Adapters:** Persistence and infrastructure, such as the PostgreSQL/Prisma adapters (`PostgresOrderRepository`, `PostgresUserRepository`), the `scrypt` password hasher (`ScryptPasswordHasher`), and the Redis cache (`RedisService`).
 
 > **Why this matters in interviews:** The HTTP layer was migrated from plain Express to NestJS **without touching a single line of business logic**: use cases such as `RegisterUserUseCase` are plain TypeScript classes, and NestJS only wires them up in `AuthModule` via factory providers and port injection tokens.
@@ -29,6 +29,7 @@ Imagine your application as a secure vault. Hexagonal Architecture (popularized 
 - **API Framework:** NestJS (Express platform)
 - **Authentication:** JSON Web Tokens (JWT) & Stateless Security, passwords hashed with `scrypt` (`node:crypto`)
 - **Validation:** Zod (Fail-fast boundary validation)
+- **API Documentation:** Swagger / OpenAPI 3 (`@nestjs/swagger`), request schemas generated from Zod via `zod-to-json-schema`
 - **Database & ORM:** PostgreSQL & Prisma ORM
 - **Cache & Concurrency Control:** Redis (`ioredis`) for per-user order idempotency locks
 - **Testing:** Vitest & Supertest (Unit & Integration tests)
@@ -46,8 +47,8 @@ node-technical-monorepo/
 │       ├── src/
 │       │   ├── application/   # Use cases (CreateOrder, RegisterUser)
 │       │   ├── domain/        # Pure business models, rules and domain errors
-│       │   ├── infrastructure/# Inbound (NestJS modules, HTTP, Auth, Middlewares), Outbound (Prisma),
-│       │   │                  # cache (Redis), security (password hashing), config (.env loading)
+│       │   ├── infrastructure/# Inbound (NestJS modules, controllers, guards, OpenAPI docs), Outbound (Prisma),
+│       │   │                  # cache (Redis), security (JWT, password hashing), config (.env loading)
 │       │   └── ports/         # Outbound interfaces + DI tokens
 │       ├── test/              # Unit & Integration test suites
 │       └── .env.example       # Environment variables template
@@ -105,8 +106,21 @@ node-technical-monorepo/
 
 7. **Start the development server** (NestJS on `http://localhost:3000`):
    ```bash
-   pnpm dev
+   pnpm --filter flash-sale-api dev
    ```
+
+---
+
+## 📚 API Documentation (Swagger)
+
+With the server running, open the interactive docs:
+
+- **Swagger UI:** [http://localhost:3000/api/docs](http://localhost:3000/api/docs)
+- **OpenAPI JSON:** [http://localhost:3000/api/docs-json](http://localhost:3000/api/docs-json) (importable into Postman / Insomnia)
+
+To call protected routes from the UI: run `POST /auth/register`, copy the `accessToken`, click **Authorize** and paste it (the token is kept across page reloads).
+
+Request bodies are generated from the same Zod schemas used for runtime validation (`zodToOpenApi` in `src/infrastructure/inbound/http/openapi/`), so docs and validation can't drift apart. Endpoint docs live in `openapi/*.docs.ts`, keeping controllers to a single decorator per route.
 
 ---
 
@@ -136,7 +150,7 @@ Validates the payload with Zod (valid `email`, `password` of 8–72 chars), hash
   | `409`  | Email already registered |
 
 ### 2. Login (Development Token)
-Returns a signed JWT for testing purposes. ⚠️ It does **not** verify credentials yet; use `/auth/register` to get a token for a real user.
+Returns a signed JWT for testing purposes. ⚠️ It does **not** verify credentials yet; use `/auth/register` to get a token for a real user. Both `email` and `userId` are optional; if sent, they must be a valid email / UUID (`400` otherwise).
 - **POST** `/auth/login`
   ```bash
   curl -X POST http://localhost:3000/auth/login \
@@ -145,7 +159,7 @@ Returns a signed JWT for testing purposes. ⚠️ It does **not** verify credent
   ```
 
 ### 3. Create Order (Protected Route)
-Creates an order in PostgreSQL. Requires a valid Bearer token (the `userId` is extracted from the JWT to prevent identity spoofing). A Redis lock rejects repeated orders for the same user and product within 3 seconds with `429 Too Many Requests`.
+Creates an order in PostgreSQL. Requires a valid Bearer token, checked by `JwtAuthGuard` (the `userId` is extracted from the JWT to prevent identity spoofing). A Redis lock rejects repeated orders for the same user and product within 3 seconds with `429 Too Many Requests`. Responses: `201`, `400` (field errors in `details`), `401`, `429`.
 - **POST** `/orders`
   ```bash
   curl -X POST http://localhost:3000/orders \

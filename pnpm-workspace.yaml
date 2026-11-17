@@ -2,6 +2,7 @@ packages:
   - 'apps/*'
   - 'packages/*'
 allowBuilds:
+  '@scarf/scarf': false
   '@prisma/client': false
   '@prisma/engines': false
   esbuild: true
