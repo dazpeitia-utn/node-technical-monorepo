@@ -59,7 +59,16 @@ jobs:
             });
 
             const data = await response.json();
-            const reviewComment = data.candidates?.[0]?.content?.parts?.[0]?.text || 'AI Review could not be generated.';
+            
+            // Imprimimos el JSON completo en los logs por si hay error
+            console.log('API Response:', JSON.stringify(data, null, 2));
+
+            let reviewComment = 'AI Review could not be generated.';
+            if (data.candidates && data.candidates[0]?.content?.parts?.[0]?.text) {
+              reviewComment = data.candidates[0].content.parts[0].text;
+            } else if (data.error) {
+              reviewComment = `Error from Gemini API: ${data.error.message || JSON.stringify(data.error)}`;
+            }
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
