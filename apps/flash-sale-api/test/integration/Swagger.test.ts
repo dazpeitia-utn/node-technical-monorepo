@@ -1,4 +1,3 @@
-import 'reflect-metadata';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { INestApplication, Module } from '@nestjs/common';

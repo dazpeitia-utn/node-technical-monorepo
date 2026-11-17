@@ -1,21 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { RegisterUserUseCase } from '../../src/application/use-cases/RegisterUserUseCase';
 import { EmailAlreadyRegisteredError } from '../../src/domain/errors/EmailAlreadyRegisteredError';
-import { User } from '../../src/domain/model/User';
 import { ScryptPasswordHasher } from '../../src/infrastructure/security/password-hasher';
-import { IUserRepository } from '../../src/ports/outbound/IUserRepository';
-
-class InMemoryUserRepository implements IUserRepository {
-  private readonly users: User[] = [];
-
-  async save(user: User): Promise<void> {
-    this.users.push(user);
-  }
-
-  async findByEmail(email: string): Promise<User | null> {
-    return this.users.find((user) => user.email === email) ?? null;
-  }
-}
+import { InMemoryUserRepository } from '../helpers/InMemoryUserRepository';
 
 describe('RegisterUserUseCase', () => {
   let userRepository: InMemoryUserRepository;
@@ -44,6 +31,15 @@ describe('RegisterUserUseCase', () => {
     expect(stored?.passwordHash.startsWith('scrypt$')).toBe(true);
     expect(await passwordHasher.verify('super-secret', stored!.passwordHash)).toBe(true);
     expect(await passwordHasher.verify('wrong-password', stored!.passwordHash)).toBe(false);
+  });
+
+  it('treats emails case-insensitively when checking duplicates', async () => {
+    await registerUserUseCase.execute({ email: 'ada@example.com', password: 'super-secret' });
+
+    await expect(
+      registerUserUseCase.execute({ email: '  ADA@Example.com ', password: 'another-secret' }),
+    ).rejects.toBeInstanceOf(EmailAlreadyRegisteredError);
+    expect(userRepository.users).toHaveLength(1);
   });
 
   it('rejects a duplicated email', async () => {
