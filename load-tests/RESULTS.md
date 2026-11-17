@@ -9,6 +9,8 @@ The atomic Redis lock (`SET NX EX`, PR #8) does exactly what a flash sale needs.
 
 200 different buyers ordering the same product at the same instant were never blocked by each other in any run, and the fix adds **no measurable latency**.
 
+**Round 2 (BullMQ queue):** with orders processed by a background worker, all 4 runs passed with the same correctness (4 orders for the spammer, 200/200 buyers, every order `CONFIRMED` exactly once). HTTP latency stayed in the same range even with **200 ms of simulated work per order**, which now happens in the worker instead of the request. See [Round 2](#round-2-asynchronous-processing-with-bullmq-2026-11-17).
+
 ## What was tested
 
 | Scenario | Load | Correct behaviour |
@@ -78,6 +80,30 @@ That gap opens at the start of the burst and again every time the 3 s lock expir
 - **Cheap rejection.** Blocked requests (`429`) answer in ~30–55 ms at p50 and never touch PostgreSQL, so spam doesn't eat database capacity that real buyers need.
 - **No performance cost.** Same throughput and latency as the broken version.
 - **Clear feedback to the client.** A `429` with an explicit message lets the frontend show "your order is being processed" instead of failing silently.
+
+## Round 2: asynchronous processing with BullMQ (2026-11-17)
+
+The API was changed so that `POST /orders` no longer writes to PostgreSQL. It validates, takes the lock, **enqueues** the order in Redis (BullMQ) and answers `202 Accepted` with status `PENDING`. A separate worker process persists it and sets `CONFIRMED`. The same script was run (it counts `201` or `202` as accepted), with `verify-db.mjs` now waiting for the worker to drain the queue and checking that every order ended `CONFIRMED`. API and worker run as two processes (worker concurrency 10).
+
+| Run | Burst accepted / in DB | Burst p50 / p95 | Spam orders / in DB (≤ 5) | Spam throughput | Spam p50 / p95 | All `CONFIRMED` | Verdict |
+|---|---:|---:|---:|---:|---:|:-:|---|
+| Queue run 1 | 200 / 200 | 181 / 272 ms | 4 / 4 | 1,190 req/s | 39.2 / 64.4 ms | ✅ | ✅ PASS |
+| Queue run 2 | 200 / 200 | 151 / 379 ms | 4 / 4 | 566 req/s | 60.7 / 209.5 ms | ✅ | ✅ PASS |
+| Queue run 3 | 200 / 200 | 322 / 628 ms | 4 / 4 | 805 req/s | 56.8 / 95.4 ms | ✅ | ✅ PASS |
+| **Queue + 200 ms simulated processing per order** | 200 / 200 | 284 / 458 ms | 4 / 4 | 844 req/s | 50.5 / 113.1 ms | ✅ | ✅ PASS |
+
+After k6 finished, the queue was fully processed within **0.5–0.8 s** (upper bound: each DB check via `docker exec psql` takes about that long), and **3.1 s** with 200 ms of simulated work per order.
+
+### What this round shows (and what it doesn't)
+
+- **Correctness is unchanged.** The lock still allows exactly 4 orders for the spamming user, and every accepted order became exactly one `CONFIRMED` row. No order was lost or duplicated going through the queue (BullMQ `jobId` = order id, idempotent worker, upsert by id).
+- **The request no longer depends on how slow processing is.** With 200 ms of simulated work per order (payment/inventory calls), HTTP latency stayed in the same range as with no work at all (burst p95 458 ms vs 272–628 ms). Without a queue, every request would have to wait for those 200 ms itself, and under a burst the waits pile up on the database pool. With the queue, that work moves to the worker, which drains it at its own pace (10 at a time).
+- **No speed-up with today's trivial processing, and that's expected.** Synchronous runs (round 1, burst p95 261–744 ms) and queued runs (272–628 ms) overlap: run-to-run noise on the laptop is bigger than the difference. Today the "processing" is a single fast `INSERT` into a local PostgreSQL, so swapping it for a Redis enqueue costs about the same. The queue pays off as processing gets heavier or the database gets slower, and when a spike exceeds what the database can absorb.
+- **Resilience (verified manually and in the integration tests, not under load).** With the worker stopped, `POST /orders` kept answering `202` and orders waited in Redis as `PENDING`. When the worker started, it processed the backlog. Failing jobs are retried 3 times (1 s / 2 s backoff) and then marked `REJECTED`.
+
+### Docker networking noise in this round
+
+Two attempts were discarded and re-run because **Docker Desktop's network proxy** failed, not the API: one dropped 40 of the 200 burst connections (`dial: i/o timeout`), and the next one couldn't open any connection during setup. The API logged no errors, every response that did arrive was correct, and both re-runs passed. This is the same proxy limit described below; native k6 (`brew install k6`) avoids it.
 
 ## Caveats
 
