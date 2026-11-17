@@ -12,12 +12,12 @@ This repository serves as a technical sandbox and architectural blueprint implem
 Imagine your application as a secure vault. Hexagonal Architecture (popularized by Alistair Cockburn) ensures that **the core of your business (the Domain)** remains completely independent of the outside world (databases, web frameworks like Express, HTTP libraries, or third-party services).
 
 - **The Domain (The Center):** Contains pure business logic and rules (e.g., `Order` entities, invariant checks). It has no knowledge of Express, SQL, MongoDB, or external frameworks—only pure TypeScript.
-- **The Ports (Interfaces):** Act as boundaries or contracts. They define *what* the domain needs (e.g., `IOrderRepository` for saving data) without caring *how* it is implemented.
+- **The Ports (Interfaces):** Act as boundaries or contracts. They define *what* the domain needs (e.g., `IOrderRepository`, `IUserRepository`, `IPasswordHasher`) without caring *how* it is implemented.
 - **The Adapters (The Outside):** Translate requests between the external world and the core domain:
-  - **Inbound Adapters:** Express controllers (`OrderController`, `AuthController`), security middlewares (`authMiddleware`), and Zod validation schemas. They intercept HTTP requests, validate payloads, and trigger use cases.
-  - **Outbound Adapters:** Persistence layers, such as the production-ready PostgreSQL/Prisma adapter (`PostgresOrderRepository`).
+  - **Inbound Adapters:** HTTP controllers (the NestJS `AuthController` and the Express-style `OrderController`), security middlewares (`authMiddleware`), and Zod validation schemas. They intercept HTTP requests, validate payloads, and trigger use cases.
+  - **Outbound Adapters:** Persistence and infrastructure, such as the PostgreSQL/Prisma adapters (`PostgresOrderRepository`, `PostgresUserRepository`), the `scrypt` password hasher (`ScryptPasswordHasher`), and the Redis cache (`RedisService`).
 
-> **Why this matters in interviews:** If business requirements dictate swapping Express for NestJS, or migrating from PostgreSQL to another database, **not a single line of business logic changes**. You simply write a new adapter.
+> **Why this matters in interviews:** The HTTP layer was migrated from plain Express to NestJS **without touching a single line of business logic**: use cases such as `RegisterUserUseCase` are plain TypeScript classes, and NestJS only wires them up in `AuthModule` via factory providers and port injection tokens.
 
 ---
 
@@ -26,10 +26,11 @@ Imagine your application as a secure vault. Hexagonal Architecture (popularized 
 - **Monorepo Management:** Turborepo & pnpm Workspaces
 - **Automated CI/CD & AI Code Review:** GitHub Actions integrated with Google Gemini API for automated Pull Request code reviews.
 - **Language:** TypeScript (Strict Mode)
-- **API Framework:** Express.js
-- **Authentication:** JSON Web Tokens (JWT) & Stateless Security
+- **API Framework:** NestJS (Express platform)
+- **Authentication:** JSON Web Tokens (JWT) & Stateless Security, passwords hashed with `scrypt` (`node:crypto`)
 - **Validation:** Zod (Fail-fast boundary validation)
 - **Database & ORM:** PostgreSQL & Prisma ORM
+- **Cache & Concurrency Control:** Redis (`ioredis`) for per-user order idempotency locks
 - **Testing:** Vitest & Supertest (Unit & Integration tests)
 - **Containerization:** Docker & Docker Compose
 
@@ -41,15 +42,17 @@ Imagine your application as a secure vault. Hexagonal Architecture (popularized 
 node-technical-monorepo/
 ├── apps/
 │   └── flash-sale-api/         # E-commerce Flash Sale micro-API (Hexagonal Architecture)
-│       ├── prisma/            # Database schema and migrations
+│       ├── prisma/            # Database schema (orders, users)
 │       ├── src/
-│       │   ├── application/   # Use cases (Orchestration logic)
-│       │   ├── domain/        # Pure business models and rules
-│       │   ├── infrastructure/# Inbound (HTTP/Auth/Middlewares) & Outbound (Prisma/DB)
-│       │   └── ports/         # Outbound interfaces (Repositories)
-│       └── test/              # Unit & Integration test suites
+│       │   ├── application/   # Use cases (CreateOrder, RegisterUser)
+│       │   ├── domain/        # Pure business models, rules and domain errors
+│       │   ├── infrastructure/# Inbound (NestJS modules, HTTP, Auth, Middlewares), Outbound (Prisma),
+│       │   │                  # cache (Redis), security (password hashing), config (.env loading)
+│       │   └── ports/         # Outbound interfaces + DI tokens
+│       ├── test/              # Unit & Integration test suites
+│       └── .env.example       # Environment variables template
 ├── packages/                  # Shared packages across apps (future expansions)
-├── docker-compose.yml         # Local infrastructure provisioning (PostgreSQL)
+├── docker-compose.yml         # Local infrastructure provisioning (PostgreSQL + Redis)
 ├── pnpm-workspace.yaml        # pnpm workspaces configuration
 └── turbo.json                 # Turborepo task orchestration pipeline
 ```
@@ -62,6 +65,8 @@ node-technical-monorepo/
 - Node.js (v20+ recommended)
 - pnpm (`npm install -g pnpm`)
 - Docker & Docker Compose
+
+> ⚠️ The root `package.json` enforces pnpm through `devEngines`, so `npx`/`npm` commands fail with `EBADDEVENGINES`. Use `pnpm exec <bin>` instead of `npx <bin>`.
 
 ### Installation & Setup
 
@@ -76,23 +81,29 @@ node-technical-monorepo/
    pnpm install
    ```
 
-3. **Start local infrastructure (PostgreSQL):**
+3. **Start local infrastructure (PostgreSQL + Redis):**
    ```bash
    docker compose up -d
    ```
 
-4. **Run database migrations:**
+4. **Configure environment variables:**
+   ```bash
+   cp apps/flash-sale-api/.env.example apps/flash-sale-api/.env
+   ```
+   The server loads `apps/flash-sale-api/.env` on startup (`src/infrastructure/config/load-env.ts`); variables already set in the shell take precedence.
+
+5. **Sync the database schema (creates the `orders` and `users` tables):**
    ```bash
    cd apps/flash-sale-api
-   npx prisma migrate dev --name init_orders_table
+   pnpm exec prisma db push
    ```
 
-5. **Run tests across the monorepo:**
+6. **Run tests across the monorepo:**
    ```bash
    pnpm test
    ```
 
-6. **Start the development server:**
+7. **Start the development server** (NestJS on `http://localhost:3000`):
    ```bash
    pnpm dev
    ```
@@ -101,8 +112,31 @@ node-technical-monorepo/
 
 ## 🔒 API Endpoints & Testing
 
-### 1. Authenticate (Get JWT Token)
-Sends user credentials to receive a signed JWT access token.
+### 1. Register a User (Get JWT Token)
+Validates the payload with Zod (valid `email`, `password` of 8–72 chars), hashes the password with `scrypt`, stores the user in PostgreSQL and returns a signed JWT access token.
+- **POST** `/auth/register`
+  ```bash
+  curl -X POST http://localhost:3000/auth/register \
+    -H "Content-Type: application/json" \
+    -d '{"email": "jorge@example.com", "password": "super-secret"}'
+  ```
+  ```json
+  {
+    "message": "User registered successfully",
+    "data": { "id": "eb383f8b-…", "email": "jorge@example.com", "createdAt": "2026-11-17T17:11:57.350Z" },
+    "accessToken": "eyJhbGciOiJIUzI1NiIs…",
+    "tokenType": "Bearer",
+    "expiresIn": "1h"
+  }
+  ```
+  | Status | Meaning |
+  |--------|---------|
+  | `201`  | User created, token returned |
+  | `400`  | Validation error (`details` lists field errors) |
+  | `409`  | Email already registered |
+
+### 2. Login (Development Token)
+Returns a signed JWT for testing purposes. ⚠️ It does **not** verify credentials yet; use `/auth/register` to get a token for a real user.
 - **POST** `/auth/login`
   ```bash
   curl -X POST http://localhost:3000/auth/login \
@@ -110,8 +144,8 @@ Sends user credentials to receive a signed JWT access token.
     -d '{"email": "jorge@example.com"}'
   ```
 
-### 2. Create Order (Protected Route)
-Creates an order in PostgreSQL. Requires a valid Bearer token (extracted securely to prevent identity spoofing).
+### 3. Create Order (Protected Route)
+Creates an order in PostgreSQL. Requires a valid Bearer token (the `userId` is extracted from the JWT to prevent identity spoofing). A Redis lock rejects repeated orders for the same user and product within 3 seconds with `429 Too Many Requests`.
 - **POST** `/orders`
   ```bash
   curl -X POST http://localhost:3000/orders \

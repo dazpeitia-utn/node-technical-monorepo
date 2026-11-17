@@ -1,30 +1,69 @@
-import { Request, Response } from 'express';
+import {
+  BadRequestException,
+  Body,
+  ConflictException,
+  Controller,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Post,
+} from '@nestjs/common';
 import jwt from 'jsonwebtoken';
+import { RegisterUserUseCase } from '../../../application/use-cases/RegisterUserUseCase';
+import { EmailAlreadyRegisteredError } from '../../../domain/errors/EmailAlreadyRegisteredError';
+import { registerUserSchema } from './auth.schema';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_key_flash_sale';
+const JWT_EXPIRES_IN = '1h';
 
+function signAccessToken(userId: string, email: string): string {
+  return jwt.sign({ userId, email }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+}
+
+@Controller('auth')
 export class AuthController {
-  async login(req: Request, res: Response): Promise<void> {
-    try {
-      const { email, userId } = req.body;
+  // @Inject explícito: tsx/esbuild no emite `design:paramtypes`, así que Nest no puede inferir el tipo.
+  constructor(@Inject(RegisterUserUseCase) private readonly registerUserUseCase: RegisterUserUseCase) {}
 
-      // Usamos un ID por defecto si no se provee, para facilitar pruebas rápidas
-      const authenticatedUserId = userId || '123e4567-e89b-12d3-a456-426614174001';
-      const userEmail = email || 'user@example.com';
+  @Post('login')
+  @HttpCode(HttpStatus.OK)
+  login(@Body() body: { email?: string; userId?: string } = {}) {
+    // Login de prueba (sin verificar credenciales), se mantiene el comportamiento previo.
+    const userId = body.userId || '123e4567-e89b-12d3-a456-426614174001';
+    const email = body.email || 'user@example.com';
 
-      // Firmamos el token JWT con el payload del usuario
-      const token = jwt.sign(
-        { userId: authenticatedUserId, email: userEmail },
-        JWT_SECRET,
-        { expiresIn: '1h' }
-      );
+    return {
+      message: 'Login successful',
+      token: signAccessToken(userId, email),
+    };
+  }
 
-      res.status(200).json({
-        message: 'Login successful',
-        token,
+  @Post('register')
+  @HttpCode(HttpStatus.CREATED)
+  async register(@Body() body: unknown) {
+    const validation = registerUserSchema.safeParse(body);
+    if (!validation.success) {
+      throw new BadRequestException({
+        error: 'Validation Error',
+        details: validation.error.flatten().fieldErrors,
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    }
+
+    try {
+      const user = await this.registerUserUseCase.execute(validation.data);
+
+      return {
+        message: 'User registered successfully',
+        data: user,
+        accessToken: signAccessToken(user.id, user.email),
+        tokenType: 'Bearer',
+        expiresIn: JWT_EXPIRES_IN,
+      };
+    } catch (error) {
+      if (error instanceof EmailAlreadyRegisteredError) {
+        throw new ConflictException({ error: error.message });
+      }
+      throw error;
     }
   }
 }
