@@ -50,9 +50,11 @@ export class OrderController {
 
     const { productId, quantity } = validation.data;
 
-    // 3. Idempotencia / anti doble clic: bloqueo temporal por usuario y producto en Redis
+    // 3. Idempotencia / anti doble clic: candado atómico por usuario y producto en Redis.
+    //    SET NX EX en una sola operación: entre N requests simultáneas, solo una lo obtiene.
     const lockKey = `lock:order:${userId}:${productId}`;
-    if (await this.redisService.get(lockKey)) {
+    const lockToken = await this.redisService.acquireLock(lockKey, ORDER_LOCK_TTL_SECONDS);
+    if (!lockToken) {
       throw new HttpException(
         {
           error: 'Too Many Requests',
@@ -61,13 +63,14 @@ export class OrderController {
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
-    await this.redisService.set(lockKey, 'locked', ORDER_LOCK_TTL_SECONDS);
 
-    // 4. Caso de uso de dominio
+    // 4. Caso de uso de dominio. Si tiene éxito, el candado se mantiene hasta su TTL (anti doble clic);
+    //    si falla, se libera para que el usuario pueda reintentar sin esperar.
     try {
       const order = await this.createOrderUseCase.execute({ productId, userId, quantity });
       return { message: 'Order created successfully', data: order };
     } catch (error) {
+      await this.redisService.releaseLock(lockKey, lockToken).catch(() => undefined);
       if (error instanceof Error && error.message === 'Quantity must be greater than zero') {
         throw new BadRequestException({ error: error.message });
       }
