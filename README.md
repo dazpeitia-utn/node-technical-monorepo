@@ -24,6 +24,7 @@ Imagine your application as a secure vault. Hexagonal Architecture (popularized 
 ## 🛠️ Tech Stack
 
 - **Monorepo Management:** Turborepo & pnpm Workspaces
+- **Automated CI/CD & AI Code Review:** GitHub Actions integrated with Google Gemini API for automated Pull Request code reviews.
 - **Language:** TypeScript (Strict Mode)
 - **API Framework:** Express.js
 - **Authentication:** JSON Web Tokens (JWT) & Stateless Security
