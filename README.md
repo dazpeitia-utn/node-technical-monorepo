@@ -11,25 +11,26 @@ This repository serves as a technical sandbox and architectural blueprint implem
 ### What is Hexagonal Architecture?
 Imagine your application as a secure vault. Hexagonal Architecture (popularized by Alistair Cockburn) ensures that **the core of your business (the Domain)** remains completely independent of the outside world (databases, web frameworks like Express, HTTP libraries, or third-party services).
 
-* **The Domain (The Center):** Contains pure business logic and rules (e.g., `Order` entities, invariant checks). It has no knowledge of Express, SQL, MongoDB, or external frameworks—only pure TypeScript.
-* **The Ports (Interfaces):** Act as boundaries or contracts. They define *what* the domain needs (e.g., `IOrderRepository` for saving data) without caring *how* it is implemented.
-* **The Adapters (The Outside):** Translate requests between the external world and the core domain:
-  * **Inbound Adapters:** Express controllers (`OrderController`) and Zod validation schemas. They intercept HTTP requests, validate payloads, and trigger use cases.
-  * **Outbound Adapters:** Persistence layers, such as the temporary in-memory store (`InMemoryOrderRepository`) or the production-ready PostgreSQL/Prisma adapter (`PostgresOrderRepository`).
+- **The Domain (The Center):** Contains pure business logic and rules (e.g., `Order` entities, invariant checks). It has no knowledge of Express, SQL, MongoDB, or external frameworks—only pure TypeScript.
+- **The Ports (Interfaces):** Act as boundaries or contracts. They define *what* the domain needs (e.g., `IOrderRepository` for saving data) without caring *how* it is implemented.
+- **The Adapters (The Outside):** Translate requests between the external world and the core domain:
+  - **Inbound Adapters:** Express controllers (`OrderController`, `AuthController`), security middlewares (`authMiddleware`), and Zod validation schemas. They intercept HTTP requests, validate payloads, and trigger use cases.
+  - **Outbound Adapters:** Persistence layers, such as the production-ready PostgreSQL/Prisma adapter (`PostgresOrderRepository`).
 
-> **Why this matters in interviews:** If business requirements dictate swapping Express for NestJS, or migrating from MongoDB to PostgreSQL, **not a single line of business logic changes**. You simply write a new adapter.
+> **Why this matters in interviews:** If business requirements dictate swapping Express for NestJS, or migrating from PostgreSQL to another database, **not a single line of business logic changes**. You simply write a new adapter.
 
 ---
 
 ## 🛠️ Tech Stack
 
-* **Monorepo Management:** Turborepo & pnpm Workspaces
-* **Language:** TypeScript (Strict Mode)
-* **API Framework:** Express.js
-* **Validation:** Zod (Fail-fast boundary validation)
-* **Database & ORM:** PostgreSQL & Prisma ORM
-* **Testing:** Vitest & Supertest (Unit & Integration tests)
-* **Containerization:** Docker & Docker Compose
+- **Monorepo Management:** Turborepo & pnpm Workspaces
+- **Language:** TypeScript (Strict Mode)
+- **API Framework:** Express.js
+- **Authentication:** JSON Web Tokens (JWT) & Stateless Security
+- **Validation:** Zod (Fail-fast boundary validation)
+- **Database & ORM:** PostgreSQL & Prisma ORM
+- **Testing:** Vitest & Supertest (Unit & Integration tests)
+- **Containerization:** Docker & Docker Compose
 
 ---
 
@@ -43,7 +44,7 @@ node-technical-monorepo/
 │       ├── src/
 │       │   ├── application/   # Use cases (Orchestration logic)
 │       │   ├── domain/        # Pure business models and rules
-│       │   ├── infrastructure/# Inbound (HTTP/Express) & Outbound (Prisma/DB) adapters
+│       │   ├── infrastructure/# Inbound (HTTP/Auth/Middlewares) & Outbound (Prisma/DB)
 │       │   └── ports/         # Outbound interfaces (Repositories)
 │       └── test/              # Unit & Integration test suites
 ├── packages/                  # Shared packages across apps (future expansions)
@@ -57,9 +58,9 @@ node-technical-monorepo/
 ## 🚀 Getting Started
 
 ### Prerequisites
-* Node.js (v20+ recommended)
-* pnpm (`npm install -g pnpm`)
-* Docker & Docker Compose
+- Node.js (v20+ recommended)
+- pnpm (`npm install -g pnpm`)
+- Docker & Docker Compose
 
 ### Installation & Setup
 
@@ -94,6 +95,32 @@ node-technical-monorepo/
    ```bash
    pnpm dev
    ```
+
+---
+
+## 🔒 API Endpoints & Testing
+
+### 1. Authenticate (Get JWT Token)
+Sends user credentials to receive a signed JWT access token.
+- **POST** `/auth/login`
+  ```bash
+  curl -X POST http://localhost:3000/auth/login \
+    -H "Content-Type: application/json" \
+    -d '{"email": "jorge@example.com"}'
+  ```
+
+### 2. Create Order (Protected Route)
+Creates an order in PostgreSQL. Requires a valid Bearer token (extracted securely to prevent identity spoofing).
+- **POST** `/orders`
+  ```bash
+  curl -X POST http://localhost:3000/orders \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer <YOUR_JWT_TOKEN>" \
+    -d '{
+      "productId": "123e4567-e89b-12d3-a456-426614174000",
+      "quantity": 2
+    }'
+  ```
 
 ---
 
